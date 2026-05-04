@@ -31,12 +31,3 @@ def test_scorecard_unknown_client(app_client):
         headers={"Authorization": "Bearer test-api-key"},
     )
     assert r.status_code == 404
-
-
-def test_scorecard_unknown_author(app_client):
-    r = app_client.post(
-        "/v1/scorecards/bain/unknown",
-        json={},
-        headers={"Authorization": "Bearer test-api-key"},
-    )
-    assert r.status_code == 404

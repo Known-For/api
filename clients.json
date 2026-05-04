@@ -1,21 +1,67 @@
 {
-  "bain": {
-    "name": "Bain & Company",
-    "notion": {
-      "content_db_id": "",
-      "resources_db_id": "",
-      "author_property": "Author",
-      "type_property": "Type",
-      "stage_property": "Stage",
-      "signal_file_type_value": "Signal File",
-      "scorecard_type_value": "Scorecard"
+  "_meta": {
+    "description": "Per-client config for the Author Scorecard skill. Keys are filesystem slugs from clients/<slug>/. Database IDs are Notion DBs. The skill fetches data sources at runtime and detects schema. The schema_hints below tell it which property names to try, in order.",
+    "field_resolution": "The skill picks the first property name from each *_field_candidates list that exists on the data source schema."
+  },
+
+  "kfos": {
+    "resources_db_id": "2dc42d44-95b2-8051-bed2-d3faf4095b0c",
+    "_note": "KFOS Resources — write target for scorecards (Type=Scorecard)."
+  },
+
+  "schema_hints": {
+    "session_type_value": "Signal File",
+    "deliverable_title_field_candidates": ["Title", "Name"],
+    "deliverable_delivery_field_candidates": ["Delivery", "DRAFT Date", "Draft Date", "Delivered", "Date"],
+    "deliverable_publish_field_candidates": ["Publish Date", "Published"],
+    "deliverable_author_field_candidates": ["Author"],
+    "deliverable_status_field_candidates": ["Status"],
+    "session_date_field_candidates": ["Session Date", "Date", "createdTime"]
+  },
+
+  "clients": {
+    "bain": {
+      "display_name": "Bain & Co",
+      "resources_db_id": "2dc42d44-95b2-8058-b7ca-f37cbacae269",
+      "content_db_id": "24042d44-95b2-8034-83bb-d817d453311c",
+      "author_convention": "display",
+      "_verified": "2026-04-28: schemas confirmed by direct fetch. Resources Author = slugs (chuck-whitten); Content Author = display names (Chuck Whitten); Content delivery field = Delivery; Content title = Name; Resources has no date property — use createdTime as session date."
     },
-    "authors": {
-      "chuck-whitten": {
-        "name": "Chuck Whitten",
-        "notion_value": "Chuck Whitten",
-        "linkedin_url": ""
-      }
+    "myriad360": {
+      "display_name": "Myriad360",
+      "resources_db_id": "2dc42d44-95b2-809c-9113-f0091449de20",
+      "content_db_id": "28a42d44-95b2-804b-ad20-fb2dd78a8393",
+      "author_convention": "display",
+      "_verified": "2026-04-28: Content schema confirmed. Author = display names (Chris Brill); delivery field = DRAFT Date; title = Title."
+    },
+    "blockdaemon": {
+      "display_name": "BlockDaemon",
+      "resources_db_id": "2dc42d44-95b2-8006-8a9d-cef79a36f3ba",
+      "content_db_id": "2cd42d44-95b2-8069-b60e-f8a78d8d3172",
+      "author_convention": "display",
+      "_verified": false,
+      "_note": "Schema not verified. Skill will attempt auto-detection at runtime."
+    },
+    "zenbusiness": {
+      "display_name": "ZenBusiness",
+      "resources_db_id": "2dc42d44-95b2-8042-90ac-f142ea9ec982",
+      "content_db_id": "2dc42d44-95b2-8076-b0cc-c968bf843d85",
+      "author_convention": "display",
+      "_verified": false
+    },
+    "sfg": {
+      "display_name": "SFG",
+      "resources_db_id": "2dc42d44-95b2-803f-acba-fadec2464da6",
+      "content_db_id": "2dc42d44-95b2-80bd-bf8c-e09a27e5548e",
+      "author_convention": "display",
+      "_verified": false
+    },
+    "Proto": {
+      "display_name": "Proto",
+      "resources_db_id": "2fe42d44-95b2-8053-9ca5-c5c17ff8317d",
+      "content_db_id": "2fe42d44-95b2-80f2-9031-d1bef569ad68",
+      "author_convention": "display",
+      "_verified": false
     }
   }
 }
