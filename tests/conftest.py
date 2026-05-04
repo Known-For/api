@@ -7,25 +7,36 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def clients_file(tmp_path: Path) -> Path:
+    """A clients.json shaped to match the real one but with test-only DB IDs."""
     data = {
-        "bain": {
-            "name": "Bain & Company",
-            "notion": {
-                "content_db_id": "11111111111111111111111111111111",
-                "resources_db_id": "22222222222222222222222222222222",
-                "author_property": "Author",
-                "type_property": "Type",
-                "stage_property": "Stage",
-                "signal_file_type_value": "Signal File",
-                "scorecard_type_value": "Scorecard",
+        "_meta": {"description": "test fixture"},
+        "kfos": {"resources_db_id": "00000000-0000-0000-0000-000000000000"},
+        "schema_hints": {
+            "session_type_value": "Signal File",
+            "deliverable_title_field_candidates": ["Name", "Title"],
+            "deliverable_delivery_field_candidates": [
+                "Delivery",
+                "DRAFT Date",
+                "Date",
+            ],
+            "deliverable_publish_field_candidates": ["Publish Date", "Published"],
+            "deliverable_author_field_candidates": ["Author"],
+            "deliverable_status_field_candidates": ["Status"],
+            "session_date_field_candidates": [
+                "Session Date",
+                "Date",
+                "createdTime",
+            ],
+        },
+        "clients": {
+            "bain": {
+                "display_name": "Bain & Co",
+                "resources_db_id": "11111111-1111-1111-1111-111111111111",
+                "content_db_id": "22222222-2222-2222-2222-222222222222",
+                "author_convention": "display",
+                "_verified": "test",
             },
-            "authors": {
-                "chuck-whitten": {
-                    "name": "Chuck Whitten",
-                    "notion_value": "Chuck Whitten",
-                },
-            },
-        }
+        },
     }
     p = tmp_path / "clients.json"
     p.write_text(json.dumps(data))
@@ -41,10 +52,10 @@ def configured_env(monkeypatch, tmp_path: Path, clients_file: Path):
     from app import clients, config
 
     config.get_settings.cache_clear()
-    clients.load_clients.cache_clear()
+    clients.load_config.cache_clear()
     yield
     config.get_settings.cache_clear()
-    clients.load_clients.cache_clear()
+    clients.load_config.cache_clear()
 
 
 @pytest.fixture
@@ -52,3 +63,8 @@ def app_client(configured_env):
     from app.main import app
 
     return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def fixture_dir() -> Path:
+    return Path(__file__).resolve().parent / "fixtures"
