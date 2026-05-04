@@ -1,13 +1,13 @@
 """Thin synchronous wrapper around the Notion REST API.
 
-Deliberately uses `requests` directly — no SDK, no MCP, no bridges.
+Direct `requests` — no SDK, no MCP, no bridges.
 """
 import logging
 from typing import Any, Iterator
 
 import requests
 
-from .config import Settings
+from ..config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,8 @@ class NotionAPIError(Exception):
 
 
 class NotionClient:
+    """Minimal Notion REST client. Auto-paginates list endpoints."""
+
     def __init__(
         self,
         settings: Settings,
@@ -73,12 +75,15 @@ class NotionClient:
         self,
         database_id: str,
         filter_: dict[str, Any] | None = None,
+        sorts: list[dict[str, Any]] | None = None,
     ) -> Iterator[dict[str, Any]]:
         cursor: str | None = None
         while True:
             payload: dict[str, Any] = {"page_size": 100}
             if filter_ is not None:
                 payload["filter"] = filter_
+            if sorts is not None:
+                payload["sorts"] = sorts
             if cursor:
                 payload["start_cursor"] = cursor
             data = self._request(
@@ -103,6 +108,12 @@ class NotionClient:
                 return
             cursor = data.get("next_cursor")
 
+    def retrieve_database(self, database_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/databases/{database_id}")
+
+    def retrieve_page(self, page_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/pages/{page_id}")
+
     def create_page(
         self,
         parent: dict[str, Any],
@@ -113,3 +124,16 @@ class NotionClient:
         if children:
             payload["children"] = children
         return self._request("POST", "/pages", json=payload)
+
+    def update_page(
+        self,
+        page_id: str,
+        properties: dict[str, Any] | None = None,
+        archived: bool | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if properties is not None:
+            payload["properties"] = properties
+        if archived is not None:
+            payload["archived"] = archived
+        return self._request("PATCH", f"/pages/{page_id}", json=payload)

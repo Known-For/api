@@ -226,34 +226,79 @@ slugs while Bain Content uses display names).
 
 ```
 app/
-  main.py             FastAPI app + exception handler
-  config.py           env var loader
-  auth.py             bearer token dependency
-  models.py           pydantic request/response models
-  notion.py           thin Notion REST client (no SDK, no MCP)
-  clients.py          clients.json loader (schema_hints + per-client DB IDs)
-  storage.py          scrape persistence on Render disk
-  lib/                vendored from the original author-scorecard skill,
-    parse_linkedin.py   verbatim. Driven via subprocess in scorecards.py.
-    parse_scrape.py     match_pieces.match() is also imported in-process.
+  main.py               FastAPI app + exception handler
+  config.py             env var loader
+  auth.py               bearer token dependency
+  models.py             pydantic request/response models
+  clients.py            clients.json loader (schema_hints + per-client DB IDs)
+
+  notion/               REUSABLE Notion primitives. Compose; don't copy.
+    __init__.py           re-exports NotionClient, NotionAPIError, blocks,
+                          filters, properties.
+    client.py             thin REST client; auto-paginates list endpoints;
+                          query_database_all, get_block_children_all,
+                          retrieve_database, retrieve_page, create_page,
+                          update_page.
+    filters.py            and_/or_, select_equals, multi_select_contains,
+                          status_equals, rich_text_equals/contains,
+                          title_equals/contains, date_on_or_after/before,
+                          date_between, checkbox_equals, AND domain helpers
+                          author_any_shape, type_select_or_multi.
+    properties.py         read_value, first_present, first_present_named,
+                          read_first — handles every common Notion property
+                          type and the schema-hint candidate-name pattern.
+    blocks.py             authoring helpers (text_run, paragraph, heading_2,
+                          heading_3, bullet, divider) + reading helpers
+                          (block_to_text, assemble_body_text(client, page_id)).
+
+  workflows/            One module per deterministic workflow.
+    scorecard.py          Author scorecard. Composes app.notion + app.lib;
+                          owns scorecard-specific things (storage paths,
+                          subprocess of parse_linkedin/parse_scrape/aggregate,
+                          Notion-row-to-pieces/sessions mapping, page layout).
+                          Public entry: run(...) → (scorecard, notion_url, request_id).
+                          Public error: ScorecardError(status, detail).
+
+  lib/                  Vendored verbatim from the original author-scorecard
+    parse_linkedin.py     skill. Driven via subprocess in workflows/scorecard;
+    parse_scrape.py       match_pieces.match() is imported in-process.
     match_pieces.py
     aggregate.py
-  routers/
-    health.py
-    scorecards.py     POST /v1/scorecards/{client}/{author}
 
-docs/skill-source/    The original SKILL.md and README.md, kept for
-                      reference so the API behavior can be diffed against
-                      the originating skill spec.
+  routers/              Thin FastAPI handlers; validate input, call workflow,
+    health.py             translate workflow errors → HTTP status codes.
+    scorecards.py
 
-tests/                pytest, no Notion network calls (responses lib mocks)
-  fixtures/           chuck-whitten-posts-2026-05-02.md (verified ground truth)
+docs/skill-source/      The original SKILL.md and README.md, kept for
+                        reference so the API behavior can be diffed against
+                        the originating skill spec.
 
-clients.json          per-client Notion DB IDs + schema_hints
-render.yaml           Render web service + 1 GB disk
-requirements.txt      runtime deps
-requirements-dev.txt  + pytest, httpx, responses
+tests/                  pytest, no Notion network calls (responses lib mocks)
+  fixtures/             chuck-whitten-posts-2026-05-02.md (verified ground truth)
+  test_notion_primitives.py  filters / properties / blocks unit coverage
+  test_lib_pipeline.py       subprocess pipeline against the Chuck fixture
+  test_scorecard_endpoint.py end-to-end with mocked Notion
+
+clients.json            per-client Notion DB IDs + schema_hints
+render.yaml             Render web service + 1 GB disk
+requirements.txt        runtime deps
+requirements-dev.txt    + pytest, httpx, responses
 ```
+
+### Adding a new workflow
+
+A second deterministic workflow (e.g. piece enumeration, stage transitions,
+scrape parsing as a standalone endpoint) should:
+
+1. Live as a single module under `app/workflows/<name>.py`.
+2. Import `NotionClient`, `filters`, `properties`, and `blocks` from
+   `app.notion` — never reach for raw HTTP or rebuild filter dicts inline.
+   If something is missing from `app.notion`, add it there.
+3. Define a public `run(...)` function returning whatever the router needs,
+   and a `<Name>Error(status, detail)` exception class so the router can
+   map workflow errors to HTTP status codes uniformly.
+4. Get its own thin router under `app/routers/`. The router validates the
+   request shape, calls `workflow.run(...)`, and returns the response.
 
 ---
 
