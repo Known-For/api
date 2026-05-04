@@ -1,0 +1,21 @@
+{
+  "bain": {
+    "name": "Bain & Company",
+    "notion": {
+      "content_db_id": "",
+      "resources_db_id": "",
+      "author_property": "Author",
+      "type_property": "Type",
+      "stage_property": "Stage",
+      "signal_file_type_value": "Signal File",
+      "scorecard_type_value": "Scorecard"
+    },
+    "authors": {
+      "chuck-whitten": {
+        "name": "Chuck Whitten",
+        "notion_value": "Chuck Whitten",
+        "linkedin_url": ""
+      }
+    }
+  }
+}

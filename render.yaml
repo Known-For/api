@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: known-for-api
+    runtime: python
+    plan: starter
+    region: oregon
+    pythonVersion: "3.12"
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: KF_API_KEY
+        sync: false
+      - key: NOTION_API_TOKEN
+        sync: false
+      - key: KF_DATA_DIR
+        value: /var/data
+      - key: NOTION_API_VERSION
+        value: "2022-06-28"
+    disk:
+      name: kf-data
+      mountPath: /var/data
+      sizeGB: 1
