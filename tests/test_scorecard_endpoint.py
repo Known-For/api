@@ -27,6 +27,31 @@ def test_mode_b_with_empty_notion_returns_scorecard(
     content_db = "22222222-2222-2222-2222-222222222222"
     resources_db = "11111111-1111-1111-1111-111111111111"
 
+    # Schema probe for content DB (Stage 5 prep)
+    responses.add(
+        responses.GET,
+        f"https://api.notion.com/v1/databases/{content_db}",
+        json={
+            "id": content_db,
+            "properties": {
+                "Author": {"id": "p1", "name": "Author", "type": "select"},
+            },
+        },
+        status=200,
+    )
+    # Schema probe for resources DB (Stage 4 prep)
+    responses.add(
+        responses.GET,
+        f"https://api.notion.com/v1/databases/{resources_db}",
+        json={
+            "id": resources_db,
+            "properties": {
+                "Author": {"id": "p1", "name": "Author", "type": "select"},
+                "Type": {"id": "p2", "name": "Type", "type": "select"},
+            },
+        },
+        status=200,
+    )
     # Pieces query (Stage 5) — empty
     responses.add(
         responses.POST,

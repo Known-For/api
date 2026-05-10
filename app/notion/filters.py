@@ -4,11 +4,14 @@ Notion's filter dicts are verbose and error-prone to assemble inline. These
 helpers return Notion-API-compatible filter dicts that can be combined with
 ``and_`` / ``or_``.
 
-The two domain-specific helpers (``author_any_shape``, ``type_select_or_multi``)
-exist because we routinely don't know whether the target DB types its Author
-property as ``select`` / ``multi_select`` / ``rich_text`` / ``title``, or
-whether values are slugs or display names. OR-filtering across all shapes
-gets the right rows without a schema probe.
+**Important:** Notion's API rejects a filter clause whose filter-type doesn't
+match the actual property type. You can't OR a ``select`` clause and a
+``multi_select`` clause against the same property — Notion will reject the
+whole query. Always probe the DB schema first via
+``NotionClient.get_property_type(db_id, prop_name)`` and emit clauses that
+match. The ``author_match`` and ``type_match`` helpers below take a
+``prop_type`` argument exactly so callers can build correctly-typed filters
+once they've probed.
 """
 from typing import Any
 
@@ -74,31 +77,54 @@ def checkbox_equals(prop: str, value: bool) -> dict[str, Any]:
     return {"property": prop, "checkbox": {"equals": value}}
 
 
-# ---------------- domain helpers ----------------
+# ---------------- domain helpers (typed against the DB schema) ----------------
 
 
-def author_any_shape(prop: str, *values: str) -> dict[str, Any]:
-    """Match an Author-style property regardless of its underlying type.
+_AUTHOR_BUILDERS = {
+    "select": select_equals,
+    "multi_select": multi_select_contains,
+    "status": status_equals,
+    "rich_text": rich_text_equals,
+    "title": title_equals,
+}
 
-    Notion DBs vary in how they represent an author: a select option, a
-    multi_select, a rich_text field, or even a title. Values may be slugs
-    or display names. This OR-filters across every {shape} × {value} so a
-    caller can pass both forms and not care which one the DB actually uses.
 
-        author_any_shape("Author", "chuck-whitten", "Chuck Whitten")
+def author_match(prop: str, prop_type: str, *values: str) -> dict[str, Any]:
+    """Match an Author-style property of *known* type against any of ``values``.
+
+    Caller must pass the actual property type (probe with
+    ``NotionClient.get_property_type``). OR-ing across a slug + display-name
+    pair is the typical use:
+
+        prop_type = client.get_property_type(db_id, "Author")
+        f = filters.author_match("Author", prop_type, "chuck-whitten", "Chuck Whitten")
     """
-    clauses = []
-    for v in values:
-        clauses.append(select_equals(prop, v))
-        clauses.append(multi_select_contains(prop, v))
-        clauses.append(rich_text_equals(prop, v))
-        clauses.append(title_equals(prop, v))
-    return or_(*clauses)
+    if not values:
+        raise ValueError("author_match needs at least one value")
+    builder = _AUTHOR_BUILDERS.get(prop_type)
+    if builder is None:
+        raise ValueError(
+            f"Unsupported author property type: {prop_type!r}. "
+            f"Expected one of {sorted(_AUTHOR_BUILDERS)}."
+        )
+    if len(values) == 1:
+        return builder(prop, values[0])
+    return or_(*[builder(prop, v) for v in values])
 
 
-def type_select_or_multi(prop: str, value: str) -> dict[str, Any]:
-    """Match a Type property whether it's a select or multi_select."""
-    return or_(
-        select_equals(prop, value),
-        multi_select_contains(prop, value),
-    )
+_TYPE_BUILDERS = {
+    "select": select_equals,
+    "multi_select": multi_select_contains,
+    "status": status_equals,
+}
+
+
+def type_match(prop: str, prop_type: str, value: str) -> dict[str, Any]:
+    """Match a Type-style property of known type against a single value."""
+    builder = _TYPE_BUILDERS.get(prop_type)
+    if builder is None:
+        raise ValueError(
+            f"Unsupported type property type: {prop_type!r}. "
+            f"Expected one of {sorted(_TYPE_BUILDERS)}."
+        )
+    return builder(prop, value)
