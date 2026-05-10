@@ -266,6 +266,42 @@ def _run_aggregate(
 # ---------------- Stages 4 & 5: enumerate from Notion ----------------
 
 
+def _resolve_author_values(
+    schema: dict[str, Any] | None,
+    db_id: str,
+    prop: str,
+    candidates: list[str],
+) -> tuple[str, list[str]]:
+    """Validate that ``prop`` exists and reduce ``candidates`` to ones the DB accepts.
+
+    For select-typed properties, Notion rejects filter clauses with unknown
+    option names — so we intersect the candidate list with the available
+    options. For free-text shapes (rich_text/title), Notion accepts anything,
+    so all candidates pass through.
+
+    Returns ``(prop_type, surviving_values)``. Raises ScorecardError on
+    missing property or zero surviving values.
+    """
+    if schema is None:
+        raise ScorecardError(
+            503, f"DB {db_id} has no property named '{prop}'"
+        )
+    prop_type = schema["type"]
+    if "options" in schema:
+        available = set(schema["options"])
+        surviving = [v for v in candidates if v in available]
+        if not surviving:
+            raise ScorecardError(
+                404,
+                (
+                    f"None of {candidates} match an option of '{prop}' in DB "
+                    f"{db_id}. Available options: {sorted(available)}"
+                ),
+            )
+        return prop_type, surviving
+    return prop_type, list(candidates)
+
+
 def _fetch_pieces(
     notion: NotionClient,
     client_cfg: dict[str, Any],
@@ -284,14 +320,11 @@ def _fetch_pieces(
     status_cands = schema.get("deliverable_status_field_candidates", ["Status"])
     author_prop = author_cands[0]
 
-    author_type = notion.get_property_type(db_id, author_prop)
-    if not author_type:
-        raise ScorecardError(
-            503,
-            f"content DB {db_id} has no property named '{author_prop}' "
-            f"(checked {author_cands})",
-        )
-    filter_ = nf.author_match(author_prop, author_type, author_slug, author_display)
+    author_schema = notion.get_property_schema(db_id, author_prop)
+    author_type, author_values = _resolve_author_values(
+        author_schema, db_id, author_prop, [author_slug, author_display]
+    )
+    filter_ = nf.author_match(author_prop, author_type, *author_values)
 
     pieces: list[dict[str, Any]] = []
     for row in notion.query_database_all(db_id, filter_=filter_):
@@ -324,22 +357,26 @@ def _fetch_sessions(
     author_prop = author_cands[0]
     real_date_cands = [c for c in date_cands if c != "createdTime"]
 
-    author_type = notion.get_property_type(db_id, author_prop)
-    type_type = notion.get_property_type(db_id, "Type")
-    if not author_type:
+    author_schema = notion.get_property_schema(db_id, author_prop)
+    type_schema = notion.get_property_schema(db_id, "Type")
+
+    author_type, author_values = _resolve_author_values(
+        author_schema, db_id, author_prop, [author_slug, author_display]
+    )
+    if type_schema is None:
         raise ScorecardError(
-            503,
-            f"resources DB {db_id} has no property named '{author_prop}'",
+            503, f"resources DB {db_id} has no property named 'Type'"
         )
-    if not type_type:
-        raise ScorecardError(
-            503,
-            f"resources DB {db_id} has no property named 'Type'",
-        )
+    if "options" in type_schema and session_type_value not in set(
+        type_schema["options"]
+    ):
+        # The Type property exists but doesn't have a 'Signal File' option.
+        # Treat as zero sessions rather than 400 against Notion.
+        return []
 
     filter_ = nf.and_(
-        nf.author_match(author_prop, author_type, author_slug, author_display),
-        nf.type_match("Type", type_type, session_type_value),
+        nf.author_match(author_prop, author_type, *author_values),
+        nf.type_match("Type", type_schema["type"], session_type_value),
     )
 
     sessions: list[dict[str, Any]] = []

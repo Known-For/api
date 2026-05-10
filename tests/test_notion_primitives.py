@@ -206,7 +206,7 @@ def test_block_to_text_unknown_type_returns_empty():
 
 
 @responses.activate
-def test_get_property_type_returns_actual_type(configured_env):
+def test_get_property_schema_returns_type_and_options_for_select(configured_env):
     from app.config import get_settings
     from app.notion import NotionClient
 
@@ -217,19 +217,50 @@ def test_get_property_type_returns_actual_type(configured_env):
         json={
             "id": db_id,
             "properties": {
-                "Author": {"id": "p1", "name": "Author", "type": "select"},
-                "Type": {"id": "p2", "name": "Type", "type": "multi_select"},
+                "Author": {
+                    "id": "p1",
+                    "name": "Author",
+                    "type": "select",
+                    "select": {
+                        "options": [
+                            {"id": "1", "name": "chuck-whitten"},
+                            {"id": "2", "name": "karen-harris"},
+                        ]
+                    },
+                },
+                "Type": {
+                    "id": "p2",
+                    "name": "Type",
+                    "type": "multi_select",
+                    "multi_select": {
+                        "options": [{"id": "3", "name": "Signal File"}]
+                    },
+                },
+                "Notes": {
+                    "id": "p3",
+                    "name": "Notes",
+                    "type": "rich_text",
+                    "rich_text": {},
+                },
             },
         },
         status=200,
     )
     client = NotionClient(get_settings())
+    author = client.get_property_schema(db_id, "Author")
+    assert author == {
+        "type": "select",
+        "options": ["chuck-whitten", "karen-harris"],
+    }
+    type_ = client.get_property_schema(db_id, "Type")
+    assert type_ == {"type": "multi_select", "options": ["Signal File"]}
+    notes = client.get_property_schema(db_id, "Notes")
+    assert notes == {"type": "rich_text"}  # no options key for non-enum
     assert client.get_property_type(db_id, "Author") == "select"
-    assert client.get_property_type(db_id, "Type") == "multi_select"
 
 
 @responses.activate
-def test_get_property_type_returns_none_for_missing(configured_env):
+def test_get_property_schema_returns_none_for_missing(configured_env):
     from app.config import get_settings
     from app.notion import NotionClient
 
@@ -241,6 +272,7 @@ def test_get_property_type_returns_none_for_missing(configured_env):
         status=200,
     )
     client = NotionClient(get_settings())
+    assert client.get_property_schema(db_id, "DoesNotExist") is None
     assert client.get_property_type(db_id, "DoesNotExist") is None
 
 
