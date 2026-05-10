@@ -111,6 +111,21 @@ class NotionClient:
     def retrieve_database(self, database_id: str) -> dict[str, Any]:
         return self._request("GET", f"/databases/{database_id}")
 
+    def get_property_type(
+        self, database_id: str, property_name: str
+    ) -> str | None:
+        """Return the Notion property type for a DB column, or None if absent.
+
+        Notion's filter API rejects clauses whose filter-type doesn't match
+        the actual property type. Callers building filters should probe with
+        this first and emit a typed filter shape (see app.notion.filters).
+        """
+        db = self.retrieve_database(database_id)
+        prop = db.get("properties", {}).get(property_name)
+        if not isinstance(prop, dict):
+            return None
+        return prop.get("type")
+
     def retrieve_page(self, page_id: str) -> dict[str, Any]:
         return self._request("GET", f"/pages/{page_id}")
 

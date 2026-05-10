@@ -283,7 +283,15 @@ def _fetch_pieces(
     author_cands = schema.get("deliverable_author_field_candidates", ["Author"])
     status_cands = schema.get("deliverable_status_field_candidates", ["Status"])
     author_prop = author_cands[0]
-    filter_ = nf.author_any_shape(author_prop, author_slug, author_display)
+
+    author_type = notion.get_property_type(db_id, author_prop)
+    if not author_type:
+        raise ScorecardError(
+            503,
+            f"content DB {db_id} has no property named '{author_prop}' "
+            f"(checked {author_cands})",
+        )
+    filter_ = nf.author_match(author_prop, author_type, author_slug, author_display)
 
     pieces: list[dict[str, Any]] = []
     for row in notion.query_database_all(db_id, filter_=filter_):
@@ -316,9 +324,22 @@ def _fetch_sessions(
     author_prop = author_cands[0]
     real_date_cands = [c for c in date_cands if c != "createdTime"]
 
+    author_type = notion.get_property_type(db_id, author_prop)
+    type_type = notion.get_property_type(db_id, "Type")
+    if not author_type:
+        raise ScorecardError(
+            503,
+            f"resources DB {db_id} has no property named '{author_prop}'",
+        )
+    if not type_type:
+        raise ScorecardError(
+            503,
+            f"resources DB {db_id} has no property named 'Type'",
+        )
+
     filter_ = nf.and_(
-        nf.author_any_shape(author_prop, author_slug, author_display),
-        nf.type_select_or_multi("Type", session_type_value),
+        nf.author_match(author_prop, author_type, author_slug, author_display),
+        nf.type_match("Type", type_type, session_type_value),
     )
 
     sessions: list[dict[str, Any]] = []

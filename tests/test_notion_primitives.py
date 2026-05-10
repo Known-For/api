@@ -32,24 +32,70 @@ def test_and_or_compose():
     assert "or" in f["and"][1]
 
 
-def test_author_any_shape_covers_all_property_types():
-    f = nf.author_any_shape("Author", "chuck-whitten", "Chuck Whitten")
-    clauses = f["or"]
-    # 4 shapes × 2 values = 8 clauses
-    assert len(clauses) == 8
-    types_seen = set()
-    for c in clauses:
-        for k in ("select", "multi_select", "rich_text", "title"):
-            if k in c:
-                types_seen.add(k)
-    assert types_seen == {"select", "multi_select", "rich_text", "title"}
+def test_author_match_select_single_value():
+    f = nf.author_match("Author", "select", "chuck-whitten")
+    assert f == {"property": "Author", "select": {"equals": "chuck-whitten"}}
 
 
-def test_type_select_or_multi():
-    f = nf.type_select_or_multi("Type", "Signal File")
+def test_author_match_select_or_across_values():
+    f = nf.author_match("Author", "select", "chuck-whitten", "Chuck Whitten")
     assert "or" in f
-    shapes = {next(k for k in c if k != "property") for c in f["or"]}
-    assert shapes == {"select", "multi_select"}
+    assert len(f["or"]) == 2
+    assert all(c["select"]["equals"] for c in f["or"])
+    assert {c["select"]["equals"] for c in f["or"]} == {
+        "chuck-whitten",
+        "Chuck Whitten",
+    }
+
+
+def test_author_match_other_property_types():
+    assert nf.author_match("Author", "multi_select", "Chuck Whitten") == {
+        "property": "Author",
+        "multi_select": {"contains": "Chuck Whitten"},
+    }
+    assert nf.author_match("Author", "rich_text", "Chuck Whitten") == {
+        "property": "Author",
+        "rich_text": {"equals": "Chuck Whitten"},
+    }
+    assert nf.author_match("Author", "title", "Chuck Whitten") == {
+        "property": "Author",
+        "title": {"equals": "Chuck Whitten"},
+    }
+
+
+def test_author_match_unsupported_type_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        nf.author_match("Author", "formula", "x")
+
+
+def test_author_match_no_values_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        nf.author_match("Author", "select")
+
+
+def test_type_match_select():
+    assert nf.type_match("Type", "select", "Signal File") == {
+        "property": "Type",
+        "select": {"equals": "Signal File"},
+    }
+
+
+def test_type_match_multi_select():
+    assert nf.type_match("Type", "multi_select", "Signal File") == {
+        "property": "Type",
+        "multi_select": {"contains": "Signal File"},
+    }
+
+
+def test_type_match_unsupported_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        nf.type_match("Type", "rich_text", "x")
 
 
 def test_date_between():
@@ -157,6 +203,45 @@ def test_block_to_text_heading_with_text_field():
 def test_block_to_text_unknown_type_returns_empty():
     assert nb.block_to_text({"type": "image"}) == ""
     assert nb.block_to_text({}) == ""
+
+
+@responses.activate
+def test_get_property_type_returns_actual_type(configured_env):
+    from app.config import get_settings
+    from app.notion import NotionClient
+
+    db_id = "11111111-1111-1111-1111-111111111111"
+    responses.add(
+        responses.GET,
+        f"https://api.notion.com/v1/databases/{db_id}",
+        json={
+            "id": db_id,
+            "properties": {
+                "Author": {"id": "p1", "name": "Author", "type": "select"},
+                "Type": {"id": "p2", "name": "Type", "type": "multi_select"},
+            },
+        },
+        status=200,
+    )
+    client = NotionClient(get_settings())
+    assert client.get_property_type(db_id, "Author") == "select"
+    assert client.get_property_type(db_id, "Type") == "multi_select"
+
+
+@responses.activate
+def test_get_property_type_returns_none_for_missing(configured_env):
+    from app.config import get_settings
+    from app.notion import NotionClient
+
+    db_id = "22222222-2222-2222-2222-222222222222"
+    responses.add(
+        responses.GET,
+        f"https://api.notion.com/v1/databases/{db_id}",
+        json={"id": db_id, "properties": {}},
+        status=200,
+    )
+    client = NotionClient(get_settings())
+    assert client.get_property_type(db_id, "DoesNotExist") is None
 
 
 @responses.activate
