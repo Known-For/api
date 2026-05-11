@@ -57,6 +57,47 @@ Unauthenticated. `{"status": "ok", "version": "..."}`.
 
 Unauthenticated. Service identity.
 
+### Generic Notion endpoints (`/v1/notion/*`)
+
+All bearer-auth required. Errors from the Notion API are returned as **502**
+with `{ "error", "message", "notion_status", "notion_request_id" }` for
+debugging.
+
+| Endpoint                                          | Purpose                                                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `POST /v1/notion/databases/{db_id}/query`         | Query a database with auto-pagination. Body: `{filter, sorts, max_results}`. Returns `{results, count, truncated}`. Default cap 1000 rows, hard cap 10000. |
+| `GET  /v1/notion/databases/{db_id}/schema`        | Simplified schema: each property's `type` plus, for select/multi_select/status, the list of valid option names. Use this before building filters so you don't send unknown option values. |
+| `GET  /v1/notion/pages/{page_id}`                 | Retrieve a Notion page (full property payload, as-is from Notion).      |
+| `GET  /v1/notion/pages/{page_id}/body`            | Walk paginated `block_children` and return `{plain_text, length}`.      |
+| `POST /v1/notion/pages`                           | Create a page. Body: `{parent, properties, children?}`.                 |
+| `PATCH /v1/notion/pages/{page_id}`                | Update a page. Body: `{properties?, archived?}`.                        |
+
+Example — paginated, filtered, deterministic enumeration that won't silently
+truncate (the failure mode `notion-search` has):
+
+```bash
+curl -X POST https://api.getknownfor.com/v1/notion/databases/$BAIN_CONTENT_DB/query \
+  -H "Authorization: Bearer $KF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {"property": "Author", "select": {"equals": "chuck-whitten"}},
+    "sorts": [{"property": "Delivery", "direction": "descending"}]
+  }'
+```
+
+Example — discover what filter values are valid before querying:
+
+```bash
+curl https://api.getknownfor.com/v1/notion/databases/$BAIN_CONTENT_DB/schema \
+  -H "Authorization: Bearer $KF_API_KEY"
+# → { "id": "...", "title": "...",
+#     "properties": {
+#       "Author": {"type": "select", "options": ["chuck-whitten", "karen-harris", ...]},
+#       "Delivery": {"type": "date"},
+#       "Status": {"type": "status", "options": ["Draft", "Published", ...]}
+#     } }
+```
+
 ### `POST /v1/scorecards/{client_slug}/{author_slug}`
 
 Bearer-auth required. Generates an author scorecard following the 9-stage
