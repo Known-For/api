@@ -4,6 +4,11 @@ Internal REST API at **https://api.getknownfor.com** for Known For's
 deterministic data-pipeline work: scorecards, piece enumeration, scrape
 parsing, content stage transitions.
 
+> 🤖 **Calling the API from Cowork, Claude Code, or another AI agent?**
+> Read [`API.md`](./API.md) first — it's the authoritative API reference
+> written for agent consumption. Raw URL:
+> `https://raw.githubusercontent.com/Known-For/api/main/API.md`
+
 Replaces the prior franken-stack of MCP bridges, ngrok tunnels, pm2
 processes, and Cowork custom connectors. Cowork sessions hit this API via
 `web_fetch`, Claude Code sessions hit it via `curl` / `requests`, and cron
