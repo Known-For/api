@@ -27,27 +27,42 @@ def test_mode_b_with_empty_notion_returns_scorecard(
     content_db = "22222222-2222-2222-2222-222222222222"
     resources_db = "11111111-1111-1111-1111-111111111111"
 
-    # Schema probe for content DB (Stage 5 prep)
+    # Schema probe for content DB (Stage 5 prep) — Author is a select with chuck-whitten as an option
     responses.add(
         responses.GET,
         f"https://api.notion.com/v1/databases/{content_db}",
         json={
             "id": content_db,
             "properties": {
-                "Author": {"id": "p1", "name": "Author", "type": "select"},
+                "Author": {
+                    "id": "p1",
+                    "name": "Author",
+                    "type": "select",
+                    "select": {"options": [{"id": "1", "name": "chuck-whitten"}]},
+                },
             },
         },
         status=200,
     )
-    # Schema probe for resources DB (Stage 4 prep)
+    # Schema probe for resources DB (Stage 4 prep) — Author + Type are selects
     responses.add(
         responses.GET,
         f"https://api.notion.com/v1/databases/{resources_db}",
         json={
             "id": resources_db,
             "properties": {
-                "Author": {"id": "p1", "name": "Author", "type": "select"},
-                "Type": {"id": "p2", "name": "Type", "type": "select"},
+                "Author": {
+                    "id": "p1",
+                    "name": "Author",
+                    "type": "select",
+                    "select": {"options": [{"id": "1", "name": "chuck-whitten"}]},
+                },
+                "Type": {
+                    "id": "p2",
+                    "name": "Type",
+                    "type": "select",
+                    "select": {"options": [{"id": "2", "name": "Signal File"}]},
+                },
             },
         },
         status=200,
@@ -91,6 +106,48 @@ def test_mode_b_with_empty_notion_returns_scorecard(
     assert "diagnosis_label" in sc["header"]
     assert sc["stage1"]["sessions_held_in_range"] == 0
     assert sc["stage2"]["pieces_delivered_in_range"] == 0
+
+
+@responses.activate
+def test_returns_404_when_author_not_in_db_options(
+    app_client, tmp_path, fixture_dir
+):
+    """If neither slug nor display matches a select option, return 404
+    with the available options surfaced for debugging."""
+    _seed_storage(tmp_path, fixture_dir)
+    content_db = "22222222-2222-2222-2222-222222222222"
+
+    responses.add(
+        responses.GET,
+        f"https://api.notion.com/v1/databases/{content_db}",
+        json={
+            "id": content_db,
+            "properties": {
+                "Author": {
+                    "id": "p1",
+                    "name": "Author",
+                    "type": "select",
+                    "select": {
+                        "options": [
+                            {"id": "1", "name": "karen-harris"},
+                            {"id": "2", "name": "erika-serow"},
+                        ]
+                    },
+                },
+            },
+        },
+        status=200,
+    )
+
+    r = app_client.post(
+        "/v1/scorecards/bain/chuck-whitten",
+        json={},
+        headers={"Authorization": "Bearer test-api-key"},
+    )
+    assert r.status_code == 404, r.text
+    detail = r.json()["detail"]
+    assert "chuck-whitten" in detail.lower() or "Chuck Whitten" in detail
+    assert "karen-harris" in detail or "erika-serow" in detail
 
 
 def test_mode_b_no_existing_scrape_returns_422(app_client):

@@ -111,20 +111,41 @@ class NotionClient:
     def retrieve_database(self, database_id: str) -> dict[str, Any]:
         return self._request("GET", f"/databases/{database_id}")
 
-    def get_property_type(
+    def get_property_schema(
         self, database_id: str, property_name: str
-    ) -> str | None:
-        """Return the Notion property type for a DB column, or None if absent.
+    ) -> dict[str, Any] | None:
+        """Return ``{"type": ..., "options": [...]}`` for a DB property, or None.
 
-        Notion's filter API rejects clauses whose filter-type doesn't match
-        the actual property type. Callers building filters should probe with
-        this first and emit a typed filter shape (see app.notion.filters).
+        For ``select`` / ``multi_select`` / ``status`` properties, ``options``
+        is a list of the available option names. For other property types,
+        ``options`` is omitted (the key isn't present).
+
+        Notion validates filter values against the list of available options
+        for select-typed properties — sending an unknown option name causes
+        a 400. Workflows that build filters from caller-supplied values
+        should intersect those values with this list before constructing
+        the filter.
         """
         db = self.retrieve_database(database_id)
         prop = db.get("properties", {}).get(property_name)
         if not isinstance(prop, dict):
             return None
-        return prop.get("type")
+        ptype = prop.get("type")
+        schema: dict[str, Any] = {"type": ptype}
+        if ptype in ("select", "multi_select", "status"):
+            inner = prop.get(ptype, {})
+            options = inner.get("options", []) if isinstance(inner, dict) else []
+            schema["options"] = [
+                o.get("name") for o in options if isinstance(o, dict) and o.get("name")
+            ]
+        return schema
+
+    def get_property_type(
+        self, database_id: str, property_name: str
+    ) -> str | None:
+        """Convenience: return only the property type. See ``get_property_schema``."""
+        schema = self.get_property_schema(database_id, property_name)
+        return schema["type"] if schema else None
 
     def retrieve_page(self, page_id: str) -> dict[str, Any]:
         return self._request("GET", f"/pages/{page_id}")
