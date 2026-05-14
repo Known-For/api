@@ -86,3 +86,43 @@ def assemble_body_text(client: NotionClient, page_id: str) -> str:
     except NotionAPIError:
         return ""
     return "\n".join(parts)
+
+
+def normalize_block(block: dict[str, Any]) -> dict[str, Any]:
+    """Lightly normalize a raw Notion block for API responses.
+
+    Returns ``{id, type, has_children, text, raw}``. ``text`` is the
+    concatenated plain_text for rich-text-bearing block types, "" otherwise.
+    The full raw block is kept under ``raw`` for callers that need it.
+    """
+    return {
+        "id": block.get("id"),
+        "type": block.get("type"),
+        "has_children": bool(block.get("has_children", False)),
+        "text": block_to_text(block),
+        "raw": block,
+    }
+
+
+def iter_block_tree(
+    client: NotionClient,
+    block_id: str,
+    max_depth: int = 2,
+    _depth: int = 1,
+) -> "list[dict[str, Any]]":
+    """Depth-first walk of a block's descendants, normalized and flattened.
+
+    ``max_depth`` counts levels below ``block_id``: depth 1 is the direct
+    children, depth 2 is their children, etc. Depth 2 covers the Voice Brief
+    / Annotated Exemplars page shapes the edit workflow operates on.
+    """
+    out: list[dict[str, Any]] = []
+    for block in client.get_block_children_all(block_id):
+        out.append(normalize_block(block))
+        if block.get("has_children") and _depth < max_depth:
+            out.extend(
+                iter_block_tree(
+                    client, block["id"], max_depth=max_depth, _depth=_depth + 1
+                )
+            )
+    return out

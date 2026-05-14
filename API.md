@@ -24,7 +24,10 @@ Pick the right tool for the job:
 | --- | --- |
 | Enumerate every piece in a database matching a filter (no silent caps) | **This API** — `POST /v1/notion/databases/{id}/query` |
 | Discover what filter values are valid for a database property | **This API** — `GET  /v1/notion/databases/{id}/schema` |
+| Resolve a client's Notion DB IDs without hardcoding them | **This API** — `GET  /v1/clients/{slug}` |
 | Run the author scorecard workflow end-to-end | **This API** — `POST /v1/scorecards/{client}/{author}` |
+| Read a page's block tree with stable block IDs | **This API** — `GET  /v1/notion/blocks/{id}/children` |
+| Surgically edit a page (`old_str` → `new_str`) or append blocks | **This API** — `POST /v1/notion/pages/{id}/update_content` |
 | Look up a single Notion page Adam casually mentioned by name or URL | Cowork's official Notion connector (`notion-fetch`, etc.) |
 | Free-form "what does Notion know about X?" exploration | Cowork's official Notion connector |
 | **Deterministic** counting / matching / filtering / mutation | **This API**, never `notion-search` |
@@ -201,6 +204,176 @@ curl -X PATCH https://api.getknownfor.com/v1/notion/pages/$PAGE_ID \
   -d '{"archived": true}'
 ```
 
+`PATCH /pages/{id}` updates **page-level properties** (Status, Author, etc.).
+To edit the **content inside** a page — paragraphs, headings — use the block
+endpoints or `update_content` below.
+
+---
+
+### `GET /v1/notion/blocks/{block_id}/children`
+
+List a page's (or block's) child blocks with stable IDs and concatenated
+plain text. Pages are blocks in Notion's data model, so `block_id` can be a
+page ID. This is how you find *which block* contains the text you want to
+edit before calling `update_content` or `PATCH /blocks/{id}`.
+
+Query params: `recursive` (bool, default `false`), `page_size` (1–100,
+default 100), `cursor` (opaque pagination token).
+
+```bash
+curl -H "Authorization: Bearer $KF_API_KEY" \
+  "https://api.getknownfor.com/v1/notion/blocks/$PAGE_ID/children?recursive=true"
+```
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "id": "block-uuid",
+      "type": "paragraph",
+      "has_children": false,
+      "text": "concatenated plain text of the block's rich_text",
+      "raw": { "...": "the full Notion block object" }
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+`recursive=false` returns one Notion page of direct children (honor
+`next_cursor` / `has_more` to paginate). `recursive=true` walks the tree to
+depth 2 and returns every descendant flattened, with no pagination. `text`
+is `""` for block types that carry no rich text (images, dividers, etc.).
+
+### `POST /v1/notion/blocks/{block_id}/children`
+
+Append child blocks to a block or page. `children` (and optional `after`
+anchor block ID) pass through verbatim to Notion.
+
+```bash
+curl -X POST https://api.getknownfor.com/v1/notion/blocks/$PAGE_ID/children \
+  -H "Authorization: Bearer $KF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "children": [
+      { "object": "block", "type": "paragraph",
+        "paragraph": {"rich_text": [{"type":"text","text":{"content":"Appended."}}]} }
+    ]
+  }'
+# → {"results": [<new block>, ...], "count": 1}
+```
+
+### `PATCH /v1/notion/blocks/{block_id}`
+
+Update a single block's content. The body is the type-keyed content dict,
+passed through verbatim to Notion.
+
+```bash
+curl -X PATCH https://api.getknownfor.com/v1/notion/blocks/$BLOCK_ID \
+  -H "Authorization: Bearer $KF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"paragraph": {"rich_text": [{"type":"text","text":{"content":"new text"}}]}}'
+# → {"id": "...", "type": "paragraph", "text": "new text", "raw": {...}}
+```
+
+### `POST /v1/notion/pages/{page_id}/update_content`
+
+High-level surgical edit. Give it a list of `operations` and it does the
+list-blocks → match → patch → verify sequence server-side, so callers don't
+have to orchestrate it.
+
+Each operation is **either** a replace or an append:
+
+```json
+{
+  "operations": [
+    { "old_str": "exact text to find in one block", "new_str": "what it becomes" },
+    { "append": { "children": [ <block>, ... ], "after_block_id": "optional-anchor" } }
+  ],
+  "dry_run": false
+}
+```
+
+Server-side behavior:
+
+1. Snapshots the page's block tree (depth 2).
+2. **Validation pass:** every `old_str` op must match **exactly one** block.
+   0 matches → `no_match`; >1 → `ambiguous_match`. Either fails the whole
+   request **422 before anything is written**.
+3. `dry_run: true` → returns the resolved plan without writing.
+4. Otherwise executes: `PATCH` each replace, append each append op. If a
+   write fails mid-execution, returns **502 with `applied` listing what
+   already landed** — there is **no rollback**.
+5. Re-fetches the replaced blocks to confirm the new text is present
+   (`verified: true`).
+
+```bash
+curl -X POST https://api.getknownfor.com/v1/notion/pages/$PAGE_ID/update_content \
+  -H "Authorization: Bearer $KF_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operations": [
+      {"old_str": "the quick brown fox", "new_str": "the quick red fox"}
+    ],
+    "dry_run": true
+  }'
+```
+
+Response:
+
+```json
+{
+  "page_id": "...",
+  "applied": [
+    {"op_index": 0, "kind": "replace", "block_id": "...",
+     "before_text": "the quick brown fox", "after_text": "the quick red fox"}
+  ],
+  "verified": false,
+  "dry_run": true
+}
+```
+
+**⚠️ v1 limitation — annotation loss.** A replace swaps the matched block's
+*entire* `rich_text` array for a single plain-text run. Any inline bold,
+italic, or link **inside that block** is lost. This is acceptable for Voice
+Brief / Annotated Exemplars pages (near-plain paragraphs) but know it before
+editing a heavily-formatted block. The replace is whole-block, not a true
+inline splice.
+
+**Recommended pattern:** always call with `dry_run: true` first, inspect the
+`before_text` / `after_text`, then repeat with `dry_run: false`.
+
+---
+
+### `GET /v1/clients/{slug}`
+
+Resolve a client's Notion DB IDs from server-side `clients.json` — one
+source of truth, so callers never hardcode database IDs.
+
+```bash
+curl -H "Authorization: Bearer $KF_API_KEY" \
+  https://api.getknownfor.com/v1/clients/bain
+```
+
+Response:
+
+```json
+{
+  "slug": "bain",
+  "display_name": "Bain & Co",
+  "content_db_id": "24042d44-95b2-8034-83bb-d817d453311c",
+  "resources_db_id": "2dc42d44-95b2-8058-b7ca-f37cbacae269",
+  "author_property_verified": true
+}
+```
+
+`author_property_verified` is `true` when the client's Notion schema has
+been confirmed by direct fetch (vs. relying on runtime auto-detection).
+Unknown slug → 404.
+
 ---
 
 ### `POST /v1/scorecards/{client_slug}/{author_slug}`
@@ -291,6 +464,24 @@ curl -H "Authorization: Bearer $KF_API_KEY" \
   https://api.getknownfor.com/v1/notion/pages/$PIECE_ID | jq '.properties.Status'
 ```
 
+### Surgically edit text inside a Notion page
+
+To change text *within* a page's body (not its properties):
+
+1. `GET /v1/clients/{slug}` — resolve the target DB IDs if you don't have them.
+2. `POST /v1/notion/databases/{resources_db_id}/query` — find the exact page
+   (e.g. filter Type = Voice Brief, Author = the author).
+3. `POST /v1/notion/pages/{page_id}/update_content` with `dry_run: true` and
+   your `old_str` → `new_str` operations. Inspect the `before_text` /
+   `after_text` in the response.
+4. If the plan looks right, repeat with `dry_run: false`.
+5. The response's `verified: true` confirms the new text re-fetched cleanly;
+   you can also `GET /v1/notion/pages/{id}/body` to double-check.
+
+If step 3/4 returns 422 `no_match` or `ambiguous_match`, **do not retry with
+a looser match heuristic** — surface the failure. The `old_str` must be
+specific enough to hit exactly one block.
+
 ---
 
 ## Failure modes
@@ -299,9 +490,9 @@ curl -H "Authorization: Bearer $KF_API_KEY" \
 | --- | --- | --- |
 | 200 | Success | — |
 | 401 | Missing or wrong bearer token | Check `Authorization` header; rotate key if leaked |
-| 404 | Unknown client_slug (scorecard), or no rows match the author filter | Verify slug against `clients.json` or call `/schema` to see valid author option names |
-| 422 | Malformed request body (e.g. `scrape_paste` unparseable, missing required fields, date range inverted) | Read the `detail` string; fix the request |
-| 502 | Upstream Notion API call failed | Inspect `notion_request_id` and `notion_status`; transient 5xx from Notion can be retried after a few seconds |
+| 404 | Unknown client_slug, unknown block/page ID, or no rows match the author filter | Verify slug via `/v1/clients/{slug}`, or call `/schema` to see valid option names |
+| 422 | Malformed request body, OR an `update_content` op failed validation (`no_match`, `ambiguous_match`, `unsupported_block_type`, `malformed_op` — see the `error` field) | Read the structured `detail`; for match failures, make `old_str` more specific |
+| 502 | Upstream Notion API call failed. For `update_content`, the `detail.applied` array lists writes that landed before the failure (no rollback) | Inspect `notion_request_id` and `notion_status`; transient 5xx from Notion can be retried after a few seconds |
 | 503 | Server is missing required env vars (e.g. `NOTION_API_TOKEN`) | Ping the operator; not a client-fixable error |
 | 500 | Unexpected — check Render logs | Ping the operator with `request_id` |
 

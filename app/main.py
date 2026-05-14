@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .notion import NotionAPIError
-from .routers import health, notion, scorecards
+from .routers import clients, health, notion, scorecards
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,6 +16,7 @@ app = FastAPI(title="Known For API", version=__version__)
 app.include_router(health.router)
 app.include_router(scorecards.router)
 app.include_router(notion.router)
+app.include_router(clients.router)
 
 
 @app.exception_handler(HTTPException)
