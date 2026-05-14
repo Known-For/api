@@ -108,6 +108,48 @@ class NotionClient:
                 return
             cursor = data.get("next_cursor")
 
+    def list_block_children(
+        self,
+        block_id: str,
+        start_cursor: str | None = None,
+        page_size: int = 100,
+    ) -> dict[str, Any]:
+        """A single page of a block's children (raw Notion response).
+
+        Use ``get_block_children_all`` when you want every child auto-paginated;
+        use this when the caller wants explicit cursor control.
+        """
+        params: dict[str, Any] = {"page_size": page_size}
+        if start_cursor:
+            params["start_cursor"] = start_cursor
+        return self._request(
+            "GET", f"/blocks/{block_id}/children", params=params
+        )
+
+    def append_block_children(
+        self,
+        block_id: str,
+        children: list[dict[str, Any]],
+        after: str | None = None,
+    ) -> dict[str, Any]:
+        """Append child blocks. Pages are blocks, so block_id may be a page id."""
+        payload: dict[str, Any] = {"children": children}
+        if after:
+            payload["after"] = after
+        return self._request(
+            "PATCH", f"/blocks/{block_id}/children", json=payload
+        )
+
+    def retrieve_block(self, block_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/blocks/{block_id}")
+
+    def update_block(
+        self, block_id: str, block_payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update one block. ``block_payload`` is the type-keyed content dict,
+        e.g. ``{"paragraph": {"rich_text": [...]}}``."""
+        return self._request("PATCH", f"/blocks/{block_id}", json=block_payload)
+
     def retrieve_database(self, database_id: str) -> dict[str, Any]:
         return self._request("GET", f"/databases/{database_id}")
 
